@@ -1,0 +1,73 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosf
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.tmp
+*.user
+*.log
+*.bak
+*.ilk
+*.obj
+*.lib
+*.sbr
+*.res
+*.pch
+*.exp
+*.com
+*.tlh
+*.tli
+*.ncb
+*.opendb
+*.aps
+*.bsc
+*.map
+*.rsp
+*.woff
+*.woff2
+*.eot
+*.ttf
+*.svg
+*.scssc
+*.css.map
+*.js.map
+
+# NuGet
+*.nupkg
+*.snupkg
+*.lock.json
+project.assets.json
+
+# Rider
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# Misc
+*.orig
+*.rej
+*.swo
+*.swp
+*.bak
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.patch
+*.diff
+*.vscode/
