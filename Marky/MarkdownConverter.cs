@@ -16,6 +16,7 @@ public class MarkdownConverter
     private enum BlockState { None, InUnorderedList, InBlockquote }
     private BlockState _currentState = BlockState.None;
     private BlockState _previousState = BlockState.None;
+    private readonly List<string> _paragraphBuffer = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MarkdownConverter"/> class.
@@ -53,25 +54,38 @@ public class MarkdownConverter
         var lines = markdownText.Split('\n').Select(l => l.TrimEnd()).ToArray();
         _currentState = BlockState.None;
         _previousState = BlockState.None;
+        _paragraphBuffer.Clear();
 
         foreach (var line in lines)
         {
             ProcessLine(line, htmlBody);
         }
 
-        // Close any open blocks at the end of the document
+        // Flush any remaining paragraph or block content
+        FlushParagraphBuffer(htmlBody);
         if (_currentState != BlockState.None)
         {
             htmlBody.Add(GetClosingTagForState(_currentState));
         }
 
-        return string.Join("\n", htmlBody);
+        return string.Join("\n", htmlBody).Trim();
+    }
+
+    private void FlushParagraphBuffer(List<string> htmlBody)
+    {
+        if (_paragraphBuffer.Any())
+        {
+            var fullParagraph = string.Join(" ", _paragraphBuffer);
+            htmlBody.Add($"<p>{ApplyInlineRules(fullParagraph)}</p>");
+            _paragraphBuffer.Clear();
+        }
     }
 
     private void ProcessLine(string line, List<string> htmlBody)
     {
         if (string.IsNullOrWhiteSpace(line))
         {
+            FlushParagraphBuffer(htmlBody);
             // If we were in a block, close it
             if (_currentState != BlockState.None)
             {
@@ -83,6 +97,12 @@ public class MarkdownConverter
 
         _previousState = _currentState;
         UpdateState(line);
+
+        // If we are transitioning out of a paragraph state into a block state, flush the buffer first.
+        if (_currentState != BlockState.None && _paragraphBuffer.Any())
+        {
+            FlushParagraphBuffer(htmlBody);
+        }
 
         // Close block if state changes from list/quote to none
         if (_previousState != BlockState.None && _currentState == BlockState.None)
@@ -97,7 +117,6 @@ public class MarkdownConverter
         }
 
         // --- Rule Application ---
-        string processedLine = line;
         bool blockRuleApplied = false;
 
         foreach (var rule in _blockRules)
@@ -113,11 +132,12 @@ public class MarkdownConverter
                 {
                     var tagContent = result.Substring(firstTagEnd, lastTagStart - firstTagEnd);
                     var processedContent = ApplyInlineRules(tagContent);
-                    processedLine = result.Substring(0, firstTagEnd) + processedContent + result.Substring(lastTagStart);
+                    var processedLine = result.Substring(0, firstTagEnd) + processedContent + result.Substring(lastTagStart);
+                    htmlBody.Add(processedLine);
                 }
                 else // Handle self-closing tags like <hr>
                 {
-                    processedLine = result;
+                    htmlBody.Add(result);
                 }
                 
                 blockRuleApplied = true;
@@ -127,10 +147,8 @@ public class MarkdownConverter
 
         if (!blockRuleApplied)
         {
-            processedLine = $"<p>{ApplyInlineRules(line)}</p>";
+            _paragraphBuffer.Add(line);
         }
-
-        htmlBody.Add(processedLine);
     }
 
     private void UpdateState(string currentLine)
