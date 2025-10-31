@@ -33,8 +33,12 @@ public class MarkdownConverter
 
         _inlineRules = new List<IParseRule>
         {
-            new ImageRule(), new LinkRule(), new BoldRule(), 
-            new ItalicRule(), new InlineCodeRule()
+            new ImageRule(), 
+            new LinkRule(), 
+            new BoldItalicRule(),
+            new BoldRule(), 
+            new ItalicRule(), 
+            new InlineCodeRule()
         };
     }
 

@@ -50,4 +50,13 @@ public class InlineRuleTests
         var rule = new ImageRule();
         Assert.Equal(expected, rule.Apply(markdown));
     }
+
+    [Theory]
+    [InlineData("***bold italic***", "<strong><em>bold italic</em></strong>")]
+    [InlineData("some ***bold italic*** text", "some <strong><em>bold italic</em></strong> text")]
+    public void BoldItalicRule_ShouldConvert(string markdown, string expected)
+    {
+        var rule = new BoldItalicRule();
+        Assert.Equal(expected, rule.Apply(markdown));
+    }
 }
