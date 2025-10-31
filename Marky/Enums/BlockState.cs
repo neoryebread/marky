@@ -7,5 +7,6 @@ internal enum BlockState
 {
     None,
     InList,
-    InBlockquote
+    InBlockquote,
+    InFencedCodeBlock
 }
