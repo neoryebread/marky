@@ -29,6 +29,7 @@ public class MarkdownConverter
         _blockRules = new List<IParseRule> { new HorizontalRule(), new HeaderRule(), new FencedCodeBlockRule() };
         _inlineRules = new List<IParseRule>
         {
+            new EscapeRule(), // Process escaped characters first
             new ImageRule(), new LinkRule(), new BoldItalicRule(),
             new BoldRule(), new ItalicRule(), new InlineCodeRule()
         };
