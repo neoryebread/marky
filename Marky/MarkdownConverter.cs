@@ -1,4 +1,8 @@
-using System;using System.Collections.Generic;using System.Linq;using System.Text.RegularExpressions;using Marky.Rules;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Marky.Rules;
 
 namespace Marky;
 
@@ -14,6 +18,7 @@ public class MarkdownConverter
     private readonly Stack<(ListType Type, int Indentation)> _listStateStack = new();
     private readonly List<string> _paragraphBuffer = new();
     private BlockState _currentState = BlockState.None;
+    private string _codeBlockLanguage = string.Empty;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MarkdownConverter"/> class,
@@ -21,7 +26,7 @@ public class MarkdownConverter
     /// </summary>
     public MarkdownConverter()
     {
-        _blockRules = new List<IParseRule> { new HorizontalRule(), new HeaderRule() };
+        _blockRules = new List<IParseRule> { new HorizontalRule(), new HeaderRule(), new FencedCodeBlockRule() };
         _inlineRules = new List<IParseRule>
         {
             new ImageRule(), new LinkRule(), new BoldItalicRule(),
@@ -42,6 +47,7 @@ public class MarkdownConverter
         _listStateStack.Clear();
         _paragraphBuffer.Clear();
         _currentState = BlockState.None;
+        _codeBlockLanguage = string.Empty;
 
         foreach (var line in lines)
         {
@@ -58,6 +64,19 @@ public class MarkdownConverter
     /// </summary>
     private void ProcessLine(string line, List<string> htmlBody)
     {
+        if (_currentState == BlockState.InFencedCodeBlock)
+        {
+            if (FencedCodeBlockRule.IsFencedCodeBlock(line))
+            {
+                CloseCurrentState(htmlBody);
+            }
+            else
+            {
+                HandleFencedCodeBlockLogic(line, htmlBody);
+            }
+            return;
+        }
+        
         if (string.IsNullOrWhiteSpace(line))
         {
             CloseCurrentState(htmlBody);
@@ -71,8 +90,12 @@ public class MarkdownConverter
         if (_currentState != targetState)
         {
             CloseCurrentState(htmlBody);
-            OpenNewState(targetState, htmlBody);
+            OpenNewState(targetState, line, htmlBody);
             _currentState = targetState;
+            if (targetState == BlockState.InFencedCodeBlock)
+            {
+                return;
+            }
         }
 
         // Execute logic based on the current state
@@ -80,12 +103,14 @@ public class MarkdownConverter
         {
             case BlockState.InList: HandleListLogic(line, htmlBody); break;
             case BlockState.InBlockquote: HandleBlockquoteLogic(line, htmlBody); break;
+            case BlockState.InFencedCodeBlock: break; // Already handled
             case BlockState.None: HandleDefaultLogic(line, htmlBody); break;
         }
     }
 
     private BlockState GetStateForLine(string line)
     {
+        if (FencedCodeBlockRule.IsFencedCodeBlock(line)) return BlockState.InFencedCodeBlock;
         if (BlockquoteRule.IsBlockquote(line)) return BlockState.InBlockquote;
         if (UnorderedListRule.IsUnorderedList(line) || OrderedListRule.IsOrderedList(line)) return BlockState.InList;
         return BlockState.None;
@@ -100,16 +125,28 @@ public class MarkdownConverter
         {
             case BlockState.InList: CloseAllLists(htmlBody); break;
             case BlockState.InBlockquote: htmlBody.Add("</blockquote>"); break;
+            case BlockState.InFencedCodeBlock:
+                if (htmlBody.Any())
+                {
+                    htmlBody[htmlBody.Count - 1] += "\n</code></pre>";
+                }
+                break;
             case BlockState.None: FlushParagraphBuffer(htmlBody); break;
         }
         _currentState = BlockState.None;
     }
 
-    private void OpenNewState(BlockState newState, List<string> htmlBody)
+    private void OpenNewState(BlockState newState, string line, List<string> htmlBody)
     {
         if (newState == BlockState.InBlockquote)
         {
             htmlBody.Add("<blockquote>");
+        }
+        else if (newState == BlockState.InFencedCodeBlock)
+        {
+            _codeBlockLanguage = FencedCodeBlockRule.GetLanguage(line);
+            var langClass = !string.IsNullOrEmpty(_codeBlockLanguage) ? $" class=\"language-{_codeBlockLanguage}\"" : "";
+            htmlBody.Add($"<pre><code{langClass}>");
         }
     }
     
@@ -117,6 +154,21 @@ public class MarkdownConverter
     {
         var content = new BlockquoteRule().Apply(line);
         htmlBody.Add($"<p>{ApplyInlineRulesToContent(content)}</p>");
+    }
+
+    private void HandleFencedCodeBlockLogic(string line, List<string> htmlBody)
+    {
+        if (htmlBody.Any())
+        {
+            if (htmlBody.Last().EndsWith(">"))
+            {
+                htmlBody[htmlBody.Count - 1] += System.Security.SecurityElement.Escape(line);
+            }
+            else
+            {
+                htmlBody[htmlBody.Count - 1] += "\n" + System.Security.SecurityElement.Escape(line);
+            }
+        }
     }
     
     private void HandleListLogic(string line, List<string> htmlBody)
@@ -148,6 +200,8 @@ public class MarkdownConverter
 
     private void HandleDefaultLogic(string line, List<string> htmlBody)
     {
+        if (FencedCodeBlockRule.IsFencedCodeBlock(line)) return;
+        
         foreach (var rule in _blockRules)
         {
             var result = rule.Apply(line);
