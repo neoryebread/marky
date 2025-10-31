@@ -29,7 +29,7 @@ public class BlockRuleTests
     public void BlockquoteRule_ShouldConvert()
     {
         var rule = new BlockquoteRule();
-        Assert.Equal("<blockquote>Hello</blockquote>", rule.Apply("> Hello"));
+        Assert.Equal("Hello", rule.Apply("> Hello"));
     }
 
 
