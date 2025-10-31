@@ -1,7 +1,4 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
-using Marky.Rules;
+using System;using System.Collections.Generic;using System.Linq;using System.Text.RegularExpressions;using Marky.Rules;
 
 namespace Marky;
 
@@ -14,9 +11,9 @@ public class MarkdownConverter
     private readonly List<IParseRule> _blockRules;
     private readonly List<IParseRule> _inlineRules;
 
-    private enum ListType { Unordered, Ordered }
     private readonly Stack<(ListType Type, int Indentation)> _listStateStack = new();
     private readonly List<string> _paragraphBuffer = new();
+    private BlockState _currentState = BlockState.None;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MarkdownConverter"/> class,
@@ -24,21 +21,11 @@ public class MarkdownConverter
     /// </summary>
     public MarkdownConverter()
     {
-        _blockRules = new List<IParseRule>
-        {
-            new HorizontalRule(),
-            new HeaderRule(),
-            new BlockquoteRule(),
-        };
-
+        _blockRules = new List<IParseRule> { new HorizontalRule(), new HeaderRule() };
         _inlineRules = new List<IParseRule>
         {
-            new ImageRule(), 
-            new LinkRule(), 
-            new BoldItalicRule(),
-            new BoldRule(), 
-            new ItalicRule(), 
-            new InlineCodeRule()
+            new ImageRule(), new LinkRule(), new BoldItalicRule(),
+            new BoldRule(), new ItalicRule(), new InlineCodeRule()
         };
     }
 
@@ -51,16 +38,17 @@ public class MarkdownConverter
     {
         var htmlBody = new List<string>();
         var lines = markdownText.Split('\n').Select(l => l.TrimEnd()).ToArray();
+        
         _listStateStack.Clear();
         _paragraphBuffer.Clear();
+        _currentState = BlockState.None;
 
         foreach (var line in lines)
         {
             ProcessLine(line, htmlBody);
         }
 
-        FlushParagraphBuffer(htmlBody);
-        CloseAllLists(htmlBody);
+        CloseCurrentState(htmlBody);
 
         return string.Join("\n", htmlBody).Trim();
     }
@@ -72,52 +60,68 @@ public class MarkdownConverter
     {
         if (string.IsNullOrWhiteSpace(line))
         {
-            FlushParagraphBuffer(htmlBody);
-            CloseAllLists(htmlBody);
+            CloseCurrentState(htmlBody);
             return;
         }
 
-        if (HandleListLogic(line, htmlBody))
+        // Determine the target state based on the line's content
+        var targetState = GetStateForLine(line);
+
+        // If the state is changing, close the old state and open the new one
+        if (_currentState != targetState)
         {
-            return;
+            CloseCurrentState(htmlBody);
+            OpenNewState(targetState, htmlBody);
+            _currentState = targetState;
         }
 
-        // If we were in a list and now we are not, close all list tags first.
-        CloseAllLists(htmlBody);
-
-        bool blockRuleApplied = false;
-        foreach (var rule in _blockRules)
+        // Execute logic based on the current state
+        switch (_currentState)
         {
-            var result = rule.Apply(line);
-            if (result != line)
-            {
-                // A block rule is about to be applied, so flush any pending paragraph.
-                FlushParagraphBuffer(htmlBody);
-                htmlBody.Add(ApplyInlineRules(result));
-                blockRuleApplied = true;
-                break;
-            }
-        }
-
-        if (!blockRuleApplied)
-        {
-            _paragraphBuffer.Add(line);
+            case BlockState.InList: HandleListLogic(line, htmlBody); break;
+            case BlockState.InBlockquote: HandleBlockquoteLogic(line, htmlBody); break;
+            case BlockState.None: HandleDefaultLogic(line, htmlBody); break;
         }
     }
 
+    private BlockState GetStateForLine(string line)
+    {
+        if (BlockquoteRule.IsBlockquote(line)) return BlockState.InBlockquote;
+        if (UnorderedListRule.IsUnorderedList(line) || OrderedListRule.IsOrderedList(line)) return BlockState.InList;
+        return BlockState.None;
+    }
+
     /// <summary>
-    /// Manages the state of nested lists, opening and closing list tags as needed.
+    /// Closes the current block state and flushes any pending content.
     /// </summary>
-    /// <returns>True if the line was handled as a list item, false otherwise.</returns>
-    private bool HandleListLogic(string line, List<string> htmlBody)
+    private void CloseCurrentState(List<string> htmlBody)
+    {
+        switch (_currentState)
+        {
+            case BlockState.InList: CloseAllLists(htmlBody); break;
+            case BlockState.InBlockquote: htmlBody.Add("</blockquote>"); break;
+            case BlockState.None: FlushParagraphBuffer(htmlBody); break;
+        }
+        _currentState = BlockState.None;
+    }
+
+    private void OpenNewState(BlockState newState, List<string> htmlBody)
+    {
+        if (newState == BlockState.InBlockquote)
+        {
+            htmlBody.Add("<blockquote>");
+        }
+    }
+    
+    private void HandleBlockquoteLogic(string line, List<string> htmlBody)
+    {
+        var content = new BlockquoteRule().Apply(line);
+        htmlBody.Add($"<p>{ApplyInlineRulesToContent(content)}</p>");
+    }
+    
+    private void HandleListLogic(string line, List<string> htmlBody)
     {
         bool isUnordered = UnorderedListRule.IsUnorderedList(line);
-        bool isOrdered = OrderedListRule.IsOrderedList(line);
-
-        if (!isUnordered && !isOrdered) return false;
-
-        FlushParagraphBuffer(htmlBody);
-
         var type = isUnordered ? ListType.Unordered : ListType.Ordered;
         var indentation = isUnordered ? UnorderedListRule.GetIndentation(line) : OrderedListRule.GetIndentation(line);
         
@@ -140,8 +144,21 @@ public class MarkdownConverter
 
         var rule = isUnordered ? (IParseRule)new UnorderedListRule() : new OrderedListRule();
         htmlBody.Add(ApplyInlineRules(rule.Apply(line)));
+    }
 
-        return true;
+    private void HandleDefaultLogic(string line, List<string> htmlBody)
+    {
+        foreach (var rule in _blockRules)
+        {
+            var result = rule.Apply(line);
+            if (result != line)
+            {
+                FlushParagraphBuffer(htmlBody);
+                htmlBody.Add(ApplyInlineRules(result));
+                return;
+            }
+        }
+        _paragraphBuffer.Add(line);
     }
 
     /// <summary>
@@ -160,12 +177,10 @@ public class MarkdownConverter
     /// </summary>
     private void FlushParagraphBuffer(List<string> htmlBody)
     {
-        if (_paragraphBuffer.Any())
-        {
-            var fullParagraph = string.Join(" ", _paragraphBuffer);
-            htmlBody.Add($"<p>{ApplyInlineRulesToContent(fullParagraph)}</p>");
-            _paragraphBuffer.Clear();
-        }
+        if (!_paragraphBuffer.Any()) return;
+        var fullParagraph = string.Join(" ", _paragraphBuffer);
+        htmlBody.Add($"<p>{ApplyInlineRulesToContent(fullParagraph)}</p>");
+        _paragraphBuffer.Clear();
     }
 
     private string GetOpeningTag(ListType type) => type == ListType.Ordered ? "<ol>" : "<ul>";
@@ -176,8 +191,7 @@ public class MarkdownConverter
     /// </summary>
     private string ApplyInlineRules(string text)
     {
-        // This regex is more robust. It finds content between > and <.
-        return Regex.Replace(text, @">([^<]*?)<", m => $">{ApplyInlineRulesToContent(m.Groups[1].Value)}<");
+        return Regex.Replace(text, @">([^<]*)<", m => $">{ApplyInlineRulesToContent(m.Groups[1].Value)}<");
     }
 
     /// <summary>
@@ -185,10 +199,6 @@ public class MarkdownConverter
     /// </summary>
     private string ApplyInlineRulesToContent(string content)
     {
-        foreach (var rule in _inlineRules)
-        {
-            content = rule.Apply(content);
-        }
-        return content;
+        return _inlineRules.Aggregate(content, (current, rule) => rule.Apply(current));
     }
 }

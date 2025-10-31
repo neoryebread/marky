@@ -40,7 +40,7 @@ public class MarkdownConverterTests
         Assert.Contains("<li>List item one</li>", result);
         Assert.Contains("<li>List item <code>two</code> with code</li>", result);
         Assert.Contains("</ul>", result);
-        Assert.Contains("<blockquote>A blockquote follows the list.</blockquote>", result);
+        Assert.Contains("<blockquote>\n<p>A blockquote follows the list.</p>\n</blockquote>", result);
         Assert.Contains("<img src=\"img.png\" alt=\"Image alt\">", result);
     }
 
